@@ -1,6 +1,6 @@
 # Applicant - Employee Match App and Algorithm
 
-## The Company Tech Interview - Context  
+## The Company Tech Matching App - Context  
 
 The Company's main product, the retention prediction, provides to our clients the likelihood of an applicant
 being retained for the different jobs they apply to.  
