@@ -1,6 +1,5 @@
 from datetime import date
-
-import matching
+from src.applicant_employee_match import matching
 
 def test_sample():
     "Sample test to ensure 'pytest' is working properly"
