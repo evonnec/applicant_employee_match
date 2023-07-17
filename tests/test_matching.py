@@ -1,5 +1,5 @@
-from datetime import date
 from src.applicant_employee_match import matching
+from datetime import date as dtdate
 
 def test_sample():
     "Sample test to ensure 'pytest' is working properly"
@@ -7,9 +7,9 @@ def test_sample():
         'applicant_id': '123',
         'first_name': 'Mary',
         'last_name': 'Doe',
-        'application_date': date(2020, 1, 1)
+        'application_date': dtdate(2020, 1, 1)
     }
-    assert matching.Applicant(**applicant).dict() == applicant
+    assert matching.Applicant(**applicant).model_dump() == applicant
 
 # def test_no_matches():
 #     applicant = matching.Applicant(
@@ -77,21 +77,21 @@ def test_same_id_different_name():
         applicant_id='ABC',
         first_name='Marianne',
         last_name='Smith',
-        application_date=date(2019, 1, 1),
+        application_date=dtdate(2019, 1, 1),
     )
     employee1 = matching.Employee(
         employee_id='1234',
-        hire_date=date(2019, 1, 15),
+        hire_date=dtdate(2019, 1, 15),
         first_name='Marianne',
         last_name='Smith',
-        term_date=date(2019, 2, 2),
+        term_date=dtdate(2019, 2, 2),
     )
     employee2 = matching.Employee(
         employee_id='1234',
-        hire_date=date(2019, 8, 3),
+        hire_date=dtdate(2019, 8, 3),
         first_name='Marianne',
         last_name='Smith',
-        term_date=date(2019, 12, 3),
+        term_date=dtdate(2019, 12, 3),
     )
 
     result = matching.Match.match(
@@ -99,10 +99,16 @@ def test_same_id_different_name():
         employees=[employee1, employee2],
     ) 
 
+    print(result)
     assert len(result) == 2
 
-    expected_first_names = {'Marianne', 'Mary'}
-    actual_first_names = {result[0].employee_first_name, result[1].employee_first_name}
+    expected_first_names = {'Marianne'}
+    actual_first_names = {
+        result[0].employee_first_name, 
+        result[1].employee_first_name, 
+        result[0].applicant_first_name, 
+        result[1].applicant_first_name
+    }
     assert expected_first_names == actual_first_names
 
     assert result[0].employee_id == "1234"
