@@ -3,7 +3,7 @@ name = "applicant_employee_match"
 version = "0.1"
 description = "applicant employee match algorithm and app"
 dependencies = [
-    "pydantic==2.0.3",
+    "pydantic==2.4.0",
     "flake8",
     "mypy",
     "pytest",
