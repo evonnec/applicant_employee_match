@@ -2,26 +2,62 @@
 name = "applicant_employee_match"
 version = "0.1"
 description = "applicant employee match algorithm and app"
-dependencies = [
-    "pydantic==2.4.0",
-    "flake8",
-    "mypy",
-    "pytest",
-    "yapf",
-    "pyproject-toml",
-    "black",
-    "ruff",
+readme = "README.md"
+license-files = ["LICENSE"]
+requires-python = ">=3.13"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
 ]
+dependencies = [
+    "pydantic>=2.14.1,<3",
+]
+
+[project.scripts]
+applicant-employee-match = "applicant_employee_match.matching:main"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.0",
+    "pytest>=9.1.1",
+    "ruff>=0.17.2",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.5,<0.14"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "UP", # pyupgrade: keep syntax current for target-version
+    "B",  # flake8-bugbear
+]
+# The formatter owns line length for code; long trailing comments are tolerated.
+ignore = ["E501"]
 
 [tool.mypy]
-[[toolmypy.overrides]]
-module = []
-ignore_missing_imports = true
+python_version = "3.13"
+files = ["src", "tests"]
+plugins = ["pydantic.mypy"]
+check_untyped_defs = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
 
-[tool.pytest.ini_options]
-pythonpath = [
-  "src",
-]
-addopts = [
-    "--import-mode=importlib",
-]
+[tool.pytest]
+minversion = "9.0"
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = ["--import-mode=importlib"]
+strict = true

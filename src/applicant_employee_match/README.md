@@ -8,25 +8,29 @@ employee data (hire/termination dates) for training.
 
 ## Installation
 
-From the project directory, setup this project using a python environment and pyproject-toml:
+This project is managed with [uv](https://docs.astral.sh/uv/). It supports Python 3.13+, and
+`.python-version` pins the interpreter used for development (3.15).
 
-create a virtual environment called `dev`
+From the project directory, create the `.venv` virtual environment and install the package plus its
+dev tools (pytest, ruff, mypy) from `uv.lock`:
 ```
-python -m venv dev
+uv sync
+```
+uv downloads the pinned Python if it isn't installed yet.
+
+Either prefix the commands below with `uv run` (for example `uv run python -m pytest`), or activate
+the environment first:
+```
+source .venv/bin/activate
 ```
 
-source the virtual environment called `dev`
+Lint, format, type and test checks:
 ```
-source dev/bin/activate
+uv run ruff check
+uv run ruff format --check
+uv run mypy
+uv run pytest
 ```
-This installs the .python-version for the virtual environment.  
-  
-install dependencies for the project  
-```
-pip install -e .
-```
-  
-This should install the correct version of Python though pyenv and any necessary pip dependencies.  
 
 ## Running
 
@@ -35,6 +39,9 @@ See the help output:
 ```
 src/applicant_employee_match/matching.py --help
 ```
+
+The package also installs an `applicant-employee-match` command, so `uv run applicant-employee-match --help`
+works too.
 
 To run matching using the data in this repo, from the project directory, run the following:
 

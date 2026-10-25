@@ -1,9 +1,11 @@
 import argparse
 import csv
-from datetime import date as dtdate
-from typing import Iterator, List, Optional, Type, TypeVar
 from collections import defaultdict
-from pydantic import BaseModel, ValidationError, Field
+from collections.abc import Iterator
+from datetime import date as dtdate
+from typing import Self
+
+from pydantic import BaseModel, Field, ValidationError
 
 
 class Applicant(BaseModel):
@@ -12,32 +14,32 @@ class Applicant(BaseModel):
     last_name: str
     application_date: dtdate
 
+
 try:
-    Applicant()
+    Applicant()  # type: ignore[call-arg]
 except ValidationError as exc:
-    print(repr(exc.errors()[0]['type']))
+    print(repr(exc.errors()[0]["type"]))
+
 
 class Employee(BaseModel):
     employee_id: str
     first_name: str
     last_name: str
     hire_date: dtdate = Field(description="Date of hire")
-    term_date: Optional[dtdate] = None # Field(description="Date of termination")
+    term_date: dtdate | None = None  # Field(description="Date of termination")
+
 
 try:
-    Employee()
+    Employee()  # type: ignore[call-arg]
 except ValidationError as exc:
-    print(repr(exc.errors()[0]['type']))
+    print(repr(exc.errors()[0]["type"]))
 
 
-T = TypeVar("T", Applicant, Employee)
-
-
-def read_csv(cls: Type[T], filename: str) -> Iterator[T]:
-    with open(filename, "r") as f:
+def read_csv[T: (Applicant, Employee)](cls: type[T], filename: str) -> Iterator[T]:
+    with open(filename) as f:
         reader = csv.DictReader(f)
         for line in reader:
-            filtered_line = {name: value for (name, value) in line.items() if value != ''}
+            filtered_line = {name: value for (name, value) in line.items() if value != ""}
             yield cls.model_validate(filtered_line)
 
 
@@ -49,31 +51,33 @@ class Match(BaseModel):
     applicant_first_name: str
     applicant_last_name: str
     application_date: dtdate = Field(description="Date of application")
-    employee_hire_date: dtdate = Field(description="Date of hire") 
-    employee_term_date: Optional[dtdate] = None #Field(description="Date of termination")
+    employee_hire_date: dtdate = Field(description="Date of hire")
+    employee_term_date: dtdate | None = None  # Field(description="Date of termination")
 
     @classmethod
-    def match(cls, applicants: List[Applicant], employees: List[Employee]) -> List["Match"]:
+    def match(cls, applicants: list[Applicant], employees: list[Employee]) -> list[Self]:
         applicants_by_name = {(applicant.first_name, applicant.last_name): applicant for applicant in applicants}
         employees_by_id = defaultdict(list)
         employees_by_name = defaultdict(list)
-        
+
         for employee in employees:
             employees_by_id[employee.employee_id].append(employee)
             employees_by_name[employee.first_name + employee.last_name].append(employee)
-        
-        matches: List[Match] = []
-        all_ids_to_map: List = []
+
+        matches: list[Self] = []
+        all_ids_to_map: list = []
 
         for employee in employees:
             this_employee_id = employee.employee_id
             group_of_employee_ids = employees_by_id.get(this_employee_id)
-            first_name = employee.first_name.capitalize() # list(set([i.first_name.capitalize() for i in group_of_employee_ids]))
-            last_name = employee.last_name.capitalize() # list(set([i.last_name.capitalize() for i in group_of_employee_ids]))
+            # list(set([i.first_name.capitalize() for i in group_of_employee_ids]))
+            first_name = employee.first_name.capitalize()
+            # list(set([i.last_name.capitalize() for i in group_of_employee_ids]))
+            last_name = employee.last_name.capitalize()
             applicant = applicants_by_name.get((first_name, last_name))
             if applicant:
-                group_of_ids_to_map = [group_of_employee_ids, this_employee_id] # are these needed?
-                all_ids_to_map.append(group_of_ids_to_map) # are these needed
+                group_of_ids_to_map = [group_of_employee_ids, this_employee_id]  # are these needed?
+                all_ids_to_map.append(group_of_ids_to_map)  # are these needed
 
                 matches.append(
                     cls(
@@ -88,13 +92,14 @@ class Match(BaseModel):
                         employee_term_date=employee.term_date,
                     )
                 )
-        
+
         return matches
 
+
 try:
-    Match()
+    Match()  # type: ignore[call-arg]
 except ValidationError as exc:
-    print(repr(exc.errors()[0]['type']))
+    print(repr(exc.errors()[0]["type"]))
 
 
 def main() -> None:
@@ -111,7 +116,7 @@ def main() -> None:
         help="Path to a file containing applicant (ATS) data. The file should have the following headers: "
         f"{', '.join(Applicant.model_fields.keys())}. The first_name, last_name, and applicant_id "
         "headers may contain arbitrary strings. The application_date header should be a date in YYYY-MM-DD "
-        "format."
+        "format.",
     )
     parser.add_argument(
         "--employee-csv",
@@ -120,19 +125,19 @@ def main() -> None:
         help="Path to a file containing employee (HRIS) data. The file should have the following headers: "
         f"{', '.join(Employee.model_fields.keys())}. The first_name, last_name, and employee_id "
         "headers may contain arbitrary strings. The hire_date and term_date should be a date in YYYY-MM-DD "
-        "format."
+        "format.",
     )
     parser.add_argument(
         "--match-out-csv",
         "-o",
         help="Path to write matched employee/applicant data. The file will have the following headers: "
         f"{', '.join(Match.model_fields.keys())}. The data in the file exactly match "
-        "the data from one row in --applicant-csv and one row in the --employee-id."
+        "the data from one row in --applicant-csv and one row in the --employee-id.",
     )
     args = parser.parse_args()
     applicant_csv: str = args.applicant_csv
     employee_csv: str = args.employee_csv
-    match_out_csv: Optional[str] = args.match_out_csv
+    match_out_csv: str | None = args.match_out_csv
 
     applicants = list(read_csv(Applicant, applicant_csv))
     print(f"{len(applicants)} applicants")
