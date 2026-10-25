@@ -1,11 +1,10 @@
 import argparse
 import csv
-from collections import defaultdict
 from collections.abc import Iterator
 from datetime import date as dtdate
 from typing import Self
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
 
 class Applicant(BaseModel):
@@ -15,24 +14,12 @@ class Applicant(BaseModel):
     application_date: dtdate
 
 
-try:
-    Applicant()  # type: ignore[call-arg]
-except ValidationError as exc:
-    print(repr(exc.errors()[0]["type"]))
-
-
 class Employee(BaseModel):
     employee_id: str
     first_name: str
     last_name: str
     hire_date: dtdate = Field(description="Date of hire")
     term_date: dtdate | None = None  # Field(description="Date of termination")
-
-
-try:
-    Employee()  # type: ignore[call-arg]
-except ValidationError as exc:
-    print(repr(exc.errors()[0]["type"]))
 
 
 def read_csv[T: (Applicant, Employee)](cls: type[T], filename: str) -> Iterator[T]:
@@ -56,34 +43,22 @@ class Match(BaseModel):
 
     @classmethod
     def match(cls, applicants: list[Applicant], employees: list[Employee]) -> list[Self]:
-        applicants_by_name = {(applicant.first_name, applicant.last_name): applicant for applicant in applicants}
-        employees_by_id = defaultdict(list)
-        employees_by_name = defaultdict(list)
+        # Compare names case-insensitively on *both* sides. The previous version capitalized only
+        # the employee's name, which fixed "KATHERINE BUTLER" but broke every compound surname
+        # ("Price-Chavez" -> "Price-chavez", "Brown Alexander" -> "Brown alexander").
+        def name_key(first_name: str, last_name: str) -> tuple[str, str]:
+            return first_name.casefold(), last_name.casefold()
 
-        for employee in employees:
-            employees_by_id[employee.employee_id].append(employee)
-            employees_by_name[employee.first_name + employee.last_name].append(employee)
-
+        applicants_by_name = {name_key(a.first_name, a.last_name): a for a in applicants}
         matches: list[Self] = []
-        all_ids_to_map: list = []
-
         for employee in employees:
-            this_employee_id = employee.employee_id
-            group_of_employee_ids = employees_by_id.get(this_employee_id)
-            # list(set([i.first_name.capitalize() for i in group_of_employee_ids]))
-            first_name = employee.first_name.capitalize()
-            # list(set([i.last_name.capitalize() for i in group_of_employee_ids]))
-            last_name = employee.last_name.capitalize()
-            applicant = applicants_by_name.get((first_name, last_name))
-            if applicant:
-                group_of_ids_to_map = [group_of_employee_ids, this_employee_id]  # are these needed?
-                all_ids_to_map.append(group_of_ids_to_map)  # are these needed
-
+            applicant = applicants_by_name.get(name_key(employee.first_name, employee.last_name))
+            if applicant is not None:
                 matches.append(
                     cls(
                         employee_id=employee.employee_id,
-                        employee_first_name=employee.first_name.capitalize(),
-                        employee_last_name=employee.last_name.capitalize(),
+                        employee_first_name=employee.first_name,
+                        employee_last_name=employee.last_name,
                         applicant_id=applicant.applicant_id,
                         applicant_first_name=applicant.first_name,
                         applicant_last_name=applicant.last_name,
@@ -92,14 +67,7 @@ class Match(BaseModel):
                         employee_term_date=employee.term_date,
                     )
                 )
-
         return matches
-
-
-try:
-    Match()  # type: ignore[call-arg]
-except ValidationError as exc:
-    print(repr(exc.errors()[0]["type"]))
 
 
 def main() -> None:

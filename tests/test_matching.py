@@ -115,3 +115,28 @@ def test_same_id_different_name():
 
     assert result[0].employee_id == "1234"
     assert result[1].employee_id == "1234"
+
+
+def test_matching_is_case_insensitive_and_keeps_compound_surnames():
+    applicants = [
+        matching.Applicant(
+            applicant_id="1", first_name="Katherine", last_name="Butler", application_date=dtdate(2012, 8, 1)
+        ),
+        matching.Applicant(
+            applicant_id="2", first_name="Christopher", last_name="Price-Chavez", application_date=dtdate(2013, 1, 1)
+        ),
+    ]
+    employees = [
+        matching.Employee(
+            employee_id="1496", first_name="KATHERINE", last_name="BUTLER", hire_date=dtdate(2012, 8, 27)
+        ),
+        matching.Employee(
+            employee_id="1123", first_name="Christopher", last_name="Price-Chavez", hire_date=dtdate(2013, 12, 15)
+        ),
+    ]
+
+    result = matching.Match.match(applicants=applicants, employees=employees)
+
+    assert [(m.employee_id, m.applicant_id) for m in result] == [("1496", "1"), ("1123", "2")]
+    # Output values are copied from the input rows, not re-capitalized.
+    assert (result[0].employee_first_name, result[0].employee_last_name) == ("KATHERINE", "BUTLER")
