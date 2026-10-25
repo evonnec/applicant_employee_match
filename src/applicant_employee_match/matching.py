@@ -14,6 +14,7 @@ keeps working without installing the package. ``python -m applicant_employee_mat
 
 import argparse
 import csv
+import io
 import os
 import re
 import sys
@@ -480,6 +481,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Output is opened only after every input row has been read and validated, so a bad input
         # never truncates an existing output file.
         if out == "-":
+            # The same bytes as -o FILE (UTF-8, CRLF row endings) whatever the locale or platform.
+            if isinstance(sys.stdout, io.TextIOWrapper):
+                sys.stdout.reconfigure(encoding="utf-8", newline="")
             write_csv(result.matches, sys.stdout)
             # Inside the try: a small output sits in the buffer, and a closed pipe must fail here, not at exit.
             sys.stdout.flush()

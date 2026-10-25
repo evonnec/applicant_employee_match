@@ -248,6 +248,20 @@ def test_input_can_be_a_pipe(repo_root: Path, make_csv: MakeCsv) -> None:
     assert "Found 2 matches" in proc.stderr
 
 
+def test_stdout_is_utf8_whatever_the_locale(repo_root: Path, make_csv: MakeCsv, tmp_path: Path) -> None:
+    """Standard output gets exactly the bytes -o would write, even where Python's stdout is not UTF-8
+    (a Windows console code page, or a Latin-1 locale)."""
+    applicants = make_csv("a.csv", APPLICANTS + "3,2019-01-01,Łukasz,Nowak\n")
+    employees = make_csv("e.csv", EMPLOYEES + "12,2019-02-01,Łukasz,Nowak,\n")
+    out = tmp_path / "out.csv"
+    command = [sys.executable, "src/applicant_employee_match/matching.py", "-a", str(applicants), "-e", str(employees)]
+    env = os.environ | {"PYTHONIOENCODING": "latin-1"}
+    proc = subprocess.run(command, cwd=repo_root, env=env, capture_output=True, check=False)
+    assert proc.returncode == 0, proc.stderr
+    assert subprocess.run([*command, "-o", str(out)], cwd=repo_root, capture_output=True, check=False).returncode == 0
+    assert proc.stdout == out.read_bytes()
+
+
 def test_importing_the_module_has_no_side_effects(repo_root: Path) -> None:
     proc = run(["-c", "import applicant_employee_match.matching"], repo_root)
     assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
