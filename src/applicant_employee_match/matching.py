@@ -481,6 +481,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         # never truncates an existing output file.
         if out == "-":
             write_csv(result.matches, sys.stdout)
+            # Inside the try: a small output sits in the buffer, and a closed pipe must fail here, not at exit.
+            sys.stdout.flush()
         else:
             write_matches(result.matches, out)
             info(f"Wrote {len(result.matches)} matches to {out}")

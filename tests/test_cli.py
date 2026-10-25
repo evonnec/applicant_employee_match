@@ -211,6 +211,27 @@ def run(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
+def test_broken_pipe_on_stdout_exits_quietly(repo_root: Path, make_csv: MakeCsv) -> None:
+    """The reader of stdout is gone before anything is written (e.g. `| true`). Small outputs sit in the
+    stdout buffer until exit, so the error must be raised (and handled) by an explicit flush."""
+    read_end, write_end = os.pipe()
+    os.close(read_end)
+    args = ["src/applicant_employee_match/matching.py", "-a", str(make_csv("a.csv", APPLICANTS))]
+    with os.fdopen(write_end, "wb") as closed_pipe:
+        proc = subprocess.run(
+            [sys.executable, *args, "-e", str(make_csv("e.csv", EMPLOYEES))],
+            cwd=repo_root,
+            stdout=closed_pipe,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+    assert proc.returncode == 1
+    assert "Found 2 matches" in proc.stderr
+    assert "BrokenPipeError" not in proc.stderr
+    assert "Exception ignored" not in proc.stderr
+
+
 @pytest.mark.skipif(not os.path.exists("/dev/stdin"), reason="needs /dev/stdin")
 def test_input_can_be_a_pipe(repo_root: Path, make_csv: MakeCsv) -> None:
     """`-a /dev/stdin` and process substitution (`-a <(cmd)`) pass a pipe, not a regular file."""
