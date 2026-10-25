@@ -67,6 +67,12 @@ def test_header_is_flexible_and_extra_columns_are_ignored(make_csv: MakeCsv) -> 
     )
 
 
+def test_unnamed_trailing_columns_are_ignored(make_csv: MakeCsv) -> None:
+    """Excel often saves stray empty columns as trailing commas; blank header names are not duplicates."""
+    text = "applicant_id,application_date,first_name,last_name,,\n1,2012-01-28,Robert,Scott,,\n"
+    assert [a.applicant_id for a in read_applicants(make_csv("a.csv", text))] == ["1"]
+
+
 def test_optional_column_may_be_absent(make_csv: MakeCsv) -> None:
     path = make_csv("e.csv", "employee_id,hire_date,first_name,last_name\n1,2012-08-27,Ann,Lee\n")
     assert [e.term_date for e in read_employees(path)] == [None]

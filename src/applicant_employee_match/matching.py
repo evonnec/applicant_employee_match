@@ -352,7 +352,8 @@ def _parse_rows[T: (Applicant, Employee)](cls: type[T], path: Path, handle: Text
 def _check_header(cls: type[BaseModel], path: Path, header: list[str]) -> list[str]:
     """Normalise header names and check them against the model; return the column names."""
     columns = [column.strip().lower() for column in header]
-    duplicated = sorted({column for column in columns if columns.count(column) > 1})
+    # Unnamed columns (trailing commas, as Excel writes for stray cells) are ignored like any extra column.
+    duplicated = sorted({column for column in columns if column and columns.count(column) > 1})
     if duplicated:
         raise InputDataError(f"{path}: duplicate column(s) in header: {', '.join(duplicated)}")
     fields = cls.model_fields.items()
