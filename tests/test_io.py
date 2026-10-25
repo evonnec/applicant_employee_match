@@ -67,6 +67,12 @@ def test_header_is_flexible_and_extra_columns_are_ignored(make_csv: MakeCsv) -> 
     )
 
 
+def test_unnamed_trailing_columns_are_ignored(make_csv: MakeCsv) -> None:
+    """Excel often saves stray empty columns as trailing commas; blank header names are not duplicates."""
+    text = "applicant_id,application_date,first_name,last_name,,\n1,2012-01-28,Robert,Scott,,\n"
+    assert [a.applicant_id for a in read_applicants(make_csv("a.csv", text))] == ["1"]
+
+
 def test_optional_column_may_be_absent(make_csv: MakeCsv) -> None:
     path = make_csv("e.csv", "employee_id,hire_date,first_name,last_name\n1,2012-08-27,Ann,Lee\n")
     assert [e.term_date for e in read_employees(path)] == [None]
@@ -95,6 +101,20 @@ def test_quoted_fields_and_line_numbers_after_multiline_records(
     with pytest.raises(InputDataError, match=r"a\.csv:5: application_date='bad-date'"):
         list(read_applicants(path))
     assert next(read_applicants(path)).last_name == "Scott, Jr."
+
+
+def test_error_in_a_multiline_record_reports_the_line_where_it_starts(make_csv: MakeCsv) -> None:
+    text = APPLICANT_HEADER + '1,2012-01-28,Robert,Scott\n2,2012-13-01,"Mary\nAnn\nJo",Lee\n3,2012-01-29,A,B\n'
+    with pytest.raises(InputDataError, match=r"a\.csv:3: application_date='2012-13-01'"):
+        list(read_applicants(make_csv("a.csv", text)))
+
+
+def test_unterminated_quote_reports_the_line_where_the_record_starts(make_csv: MakeCsv) -> None:
+    """A stray quote swallows the rest of the file into one field; the error should point at the quote's line."""
+    rows = "".join(f"{i},2012-01-28,Robert,Scott\n" for i in range(3, 50))
+    text = APPLICANT_HEADER + '1,2012-01-28,Robert,Scott\n2,2012-01-28,"Ann,Lee\n' + rows
+    with pytest.raises(InputDataError, match=r"a\.csv:3: expected 4 fields, got 3"):
+        list(read_applicants(make_csv("a.csv", text)))
 
 
 @pytest.mark.parametrize(
@@ -155,6 +175,15 @@ def test_term_date_before_hire_date_is_reported_with_line(make_csv: MakeCsv) -> 
 def test_non_utf8_file_is_reported(make_csv: MakeCsv) -> None:
     path = make_csv("a.csv", APPLICANT_HEADER + "1,2012-01-28,José,Scott\n", encoding="latin-1")
     with pytest.raises(InputDataError, match="not valid UTF-8"):
+        list(read_applicants(path))
+
+
+def test_non_utf8_byte_deep_in_a_file_is_located_by_line_and_file_offset(make_csv: MakeCsv) -> None:
+    """The decoder reads in chunks, so its offset is relative to a chunk; the error must locate the byte in the file."""
+    rows = "".join(f"{i},2012-01-28,Robert,Scott\r\n" for i in range(1, 5000))
+    path = make_csv("a.csv", APPLICANT_HEADER + rows + "5000,2012-01-28,José,Scott\r\n", encoding="latin-1")
+    offset = path.read_bytes().index("é".encode("latin-1"))
+    with pytest.raises(InputDataError, match=rf"a\.csv:5001: not valid UTF-8 \(.* at byte {offset}\)"):
         list(read_applicants(path))
 
 

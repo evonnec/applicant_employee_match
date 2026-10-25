@@ -21,6 +21,7 @@ applicant-employee-match = "applicant_employee_match.matching:main"
 
 [dependency-groups]
 dev = [
+    "hypothesis>=6.170.9",
     "mypy>=2.4.0",
     "pytest>=9.1.1",
     "ruff>=0.17.2",

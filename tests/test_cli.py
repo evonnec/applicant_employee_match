@@ -146,6 +146,29 @@ def test_refuses_to_overwrite_an_input(make_csv: MakeCsv, capsys: pytest.Capture
     assert employees.read_text() == EMPLOYEES
 
 
+def test_refuses_to_overwrite_an_input_through_a_hard_link(
+    make_csv: MakeCsv, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    applicants, employees = make_csv("a.csv", APPLICANTS), make_csv("e.csv", EMPLOYEES)
+    link = tmp_path / "link.csv"
+    os.link(applicants, link)
+    assert main(["-a", str(applicants), "-e", str(employees), "-o", str(link)]) == 1
+    assert "refusing to overwrite the applicant input" in capsys.readouterr().err
+    assert applicants.read_text() == APPLICANTS
+
+
+def test_refuses_to_overwrite_an_input_spelled_in_another_case(
+    make_csv: MakeCsv, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """On a case-insensitive file system (the macOS and Windows default) A.CSV is the same file as a.csv."""
+    applicants, employees = make_csv("a.csv", APPLICANTS), make_csv("e.csv", EMPLOYEES)
+    if not (tmp_path / "A.CSV").exists():
+        pytest.skip("file system is case-sensitive")
+    assert main(["-a", str(applicants), "-e", str(employees), "-o", str(tmp_path / "A.CSV")]) == 1
+    assert "refusing to overwrite the applicant input" in capsys.readouterr().err
+    assert applicants.read_text() == APPLICANTS
+
+
 def test_unwritable_output_location(make_csv: MakeCsv, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     out = tmp_path / "no-such-dir" / "out.csv"
     assert (
@@ -186,6 +209,57 @@ def run(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
         text=True,
         check=False,
     )
+
+
+def test_broken_pipe_on_stdout_exits_quietly(repo_root: Path, make_csv: MakeCsv) -> None:
+    """The reader of stdout is gone before anything is written (e.g. `| true`). Small outputs sit in the
+    stdout buffer until exit, so the error must be raised (and handled) by an explicit flush."""
+    read_end, write_end = os.pipe()
+    os.close(read_end)
+    args = ["src/applicant_employee_match/matching.py", "-a", str(make_csv("a.csv", APPLICANTS))]
+    with os.fdopen(write_end, "wb") as closed_pipe:
+        proc = subprocess.run(
+            [sys.executable, *args, "-e", str(make_csv("e.csv", EMPLOYEES))],
+            cwd=repo_root,
+            stdout=closed_pipe,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+    assert proc.returncode == 1
+    assert "Found 2 matches" in proc.stderr
+    assert "BrokenPipeError" not in proc.stderr
+    assert "Exception ignored" not in proc.stderr
+
+
+@pytest.mark.skipif(not os.path.exists("/dev/stdin"), reason="needs /dev/stdin")
+def test_input_can_be_a_pipe(repo_root: Path, make_csv: MakeCsv) -> None:
+    """`-a /dev/stdin` and process substitution (`-a <(cmd)`) pass a pipe, not a regular file."""
+    proc = subprocess.run(
+        [sys.executable, "src/applicant_employee_match/matching.py", "-a", "/dev/stdin"]
+        + ["-e", str(make_csv("e.csv", EMPLOYEES))],
+        cwd=repo_root,
+        input=APPLICANTS,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "Found 2 matches" in proc.stderr
+
+
+def test_stdout_is_utf8_whatever_the_locale(repo_root: Path, make_csv: MakeCsv, tmp_path: Path) -> None:
+    """Standard output gets exactly the bytes -o would write, even where Python's stdout is not UTF-8
+    (a Windows console code page, or a Latin-1 locale)."""
+    applicants = make_csv("a.csv", APPLICANTS + "3,2019-01-01,Łukasz,Nowak\n")
+    employees = make_csv("e.csv", EMPLOYEES + "12,2019-02-01,Łukasz,Nowak,\n")
+    out = tmp_path / "out.csv"
+    command = [sys.executable, "src/applicant_employee_match/matching.py", "-a", str(applicants), "-e", str(employees)]
+    env = os.environ | {"PYTHONIOENCODING": "latin-1"}
+    proc = subprocess.run(command, cwd=repo_root, env=env, capture_output=True, check=False)
+    assert proc.returncode == 0, proc.stderr
+    assert subprocess.run([*command, "-o", str(out)], cwd=repo_root, capture_output=True, check=False).returncode == 0
+    assert proc.stdout == out.read_bytes()
 
 
 def test_importing_the_module_has_no_side_effects(repo_root: Path) -> None:

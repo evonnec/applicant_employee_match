@@ -14,6 +14,7 @@ keeps working without installing the package. ``python -m applicant_employee_mat
 
 import argparse
 import csv
+import io
 import os
 import re
 import sys
@@ -135,11 +136,15 @@ NameKeyFunc = Callable[[str, str], Hashable]
 def normalize_name(value: str) -> str:
     """Canonical form of one name part, used only for comparison.
 
-    Case-folded, Unicode NFKC-normalised, with surrounding whitespace removed and inner runs of
+    Unicode NFKC-normalised and case-folded, with surrounding whitespace removed and inner runs of
     whitespace collapsed to one space. Hyphens, apostrophes and accents are kept as-is, so
     ``"Price-Chavez"`` and ``"Price Chavez"`` are still different names.
+
+    NFKC comes first because it can produce capitals that case-folding must then see ("ℍ" -> "H"),
+    and again last because case-folding can leave text that is no longer NFKC.
     """
-    return " ".join(unicodedata.normalize("NFKC", value.casefold()).split())
+    folded = unicodedata.normalize("NFKC", value).casefold()
+    return " ".join(unicodedata.normalize("NFKC", folded).split())
 
 
 def default_name_key(first_name: str, last_name: str) -> tuple[str, str]:
@@ -165,9 +170,10 @@ class MatchResult:
 def _pick_applicant(candidates: Sequence[Applicant], hire_date: date) -> Applicant:
     """Choose among applicants who share a name key.
 
-    ``candidates`` must be sorted by ``(application_date, applicant_id)``. The rule is: the latest
-    application on or before the hire date; if every application is after the hire date, the
-    earliest one. Ties on the date go to the lexicographically smallest applicant_id.
+    ``candidates`` must be sorted by ``(application_date, applicant_id, first_name, last_name)``. The
+    rule is: the latest application on or before the hire date; if every application is after the
+    hire date, the earliest one. Ties on the date go to the lexicographically smallest applicant_id,
+    then name, so that the choice never depends on the order of the input rows.
     """
     chosen: Applicant | None = None
     for candidate in candidates:
@@ -217,7 +223,7 @@ def match_records(
         applicant_rows += 1
         grouped[name_key(applicant.first_name, applicant.last_name)].append(applicant)
     index: dict[Hashable, list[Applicant]] = {
-        key: sorted(dict.fromkeys(group), key=lambda a: (a.application_date, a.applicant_id))
+        key: sorted(dict.fromkeys(group), key=lambda a: (a.application_date, a.applicant_id, a.first_name, a.last_name))
         for key, group in grouped.items()
     }
 
@@ -292,22 +298,42 @@ def read_csv[T: (Applicant, Employee)](cls: type[T], filename: str | os.PathLike
         with path.open(newline="", encoding="utf-8-sig") as handle:
             yield from _parse_rows(cls, path, handle)
     except UnicodeDecodeError as exc:
-        reason = f"{exc.reason} at byte {exc.start}"
-        raise InputDataError(f"{path}: not valid UTF-8 ({reason})") from None
+        raise InputDataError(_locate_invalid_utf8(path) or f"{path}: not valid UTF-8 ({exc.reason})") from None
+
+
+def _locate_invalid_utf8(path: Path) -> str | None:
+    """Describe the first byte of ``path`` that is not UTF-8, with its line and offset in the file.
+
+    The ``UnicodeDecodeError`` raised while reading only knows its offset within one buffered chunk,
+    so a regular file is scanned again. A pipe cannot be read twice, so for it this returns None.
+    """
+    if not path.is_file():
+        return None
+    offset = 0
+    with path.open("rb") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            try:
+                line.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                return f"{path}:{line_number}: not valid UTF-8 ({exc.reason} at byte {offset + exc.start})"
+            offset += len(line)
+    return None
 
 
 def _parse_rows[T: (Applicant, Employee)](cls: type[T], path: Path, handle: TextIO) -> Iterator[T]:
     reader = csv.reader(handle)
+    start = 1  # first line of the record being read: a quoted field can span lines
     try:
         header = next(reader, None)
         if header is None:
             raise InputDataError(f"{path}: file is empty; expected a header row")
         columns = _check_header(cls, path, header)
         known = set(cls.model_fields)
+        start = reader.line_num + 1
         for row in reader:
+            where, start = f"{path}:{start}", reader.line_num + 1
             if not any(cell.strip() for cell in row):
                 continue
-            where = f"{path}:{reader.line_num}"
             if len(row) != len(columns):
                 expected = len(columns)
                 raise InputDataError(f"{where}: expected {expected} fields, got {len(row)}")
@@ -321,13 +347,14 @@ def _parse_rows[T: (Applicant, Employee)](cls: type[T], path: Path, handle: Text
             except ValidationError as exc:
                 raise InputDataError(f"{where}: {_describe(exc)}") from None
     except csv.Error as exc:
-        raise InputDataError(f"{path}:{reader.line_num}: malformed CSV: {exc}") from None
+        raise InputDataError(f"{path}:{start}: malformed CSV: {exc}") from None
 
 
 def _check_header(cls: type[BaseModel], path: Path, header: list[str]) -> list[str]:
     """Normalise header names and check them against the model; return the column names."""
     columns = [column.strip().lower() for column in header]
-    duplicated = sorted({column for column in columns if columns.count(column) > 1})
+    # Unnamed columns (trailing commas, as Excel writes for stray cells) are ignored like any extra column.
+    duplicated = sorted({column for column in columns if column and columns.count(column) > 1})
     if duplicated:
         raise InputDataError(f"{path}: duplicate column(s) in header: {', '.join(duplicated)}")
     fields = cls.model_fields.items()
@@ -406,7 +433,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _same_file(a: str, b: str) -> bool:
-    return os.path.realpath(a) == os.path.realpath(b)
+    # samefile compares device and inode numbers, so it also sees through hard links and through
+    # case-insensitive file systems (the macOS and Windows default), where A.CSV is a.csv.
+    try:
+        return os.path.samefile(a, b)
+    except OSError:  # one of them does not exist (yet)
+        return os.path.realpath(a) == os.path.realpath(b)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -421,7 +453,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         for label, path in (("applicant", applicant_csv), ("employee", employee_csv)):
-            if not os.path.isfile(path):
+            # Not os.path.isfile: a pipe (`-a /dev/stdin`, `-a <(cmd)`) is a valid input too.
+            if not os.path.exists(path) or os.path.isdir(path):
                 raise InputDataError(f"{label} CSV not found (or not a file): {path}")
             if out != "-" and _same_file(out, path):
                 raise InputDataError(f"refusing to overwrite the {label} input with the output: {out}")
@@ -448,7 +481,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Output is opened only after every input row has been read and validated, so a bad input
         # never truncates an existing output file.
         if out == "-":
+            # The same bytes as -o FILE (UTF-8, CRLF row endings) whatever the locale or platform.
+            if isinstance(sys.stdout, io.TextIOWrapper):
+                sys.stdout.reconfigure(encoding="utf-8", newline="")
             write_csv(result.matches, sys.stdout)
+            # Inside the try: a small output sits in the buffer, and a closed pipe must fail here, not at exit.
+            sys.stdout.flush()
         else:
             write_matches(result.matches, out)
             info(f"Wrote {len(result.matches)} matches to {out}")
