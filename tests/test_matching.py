@@ -135,6 +135,10 @@ def test_models_are_frozen_and_hashable() -> None:
         ("O'Brien", "o'brien"),
         ("Straße", "strasse"),  # casefold, not lower
         ("Ｍａｒｙ", "mary"),  # full-width letters (NFKC)
+        # Compatibility letters without a lowercase mapping: NFKC must run before case-folding, or they
+        # come out upper-case ("Henry") and never match the plain spelling.
+        ("ℍenry", "henry"),  # DOUBLE-STRUCK CAPITAL H
+        ("\U0001d409\U0001d428\U0001d421\U0001d427", "john"),  # MATHEMATICAL BOLD "John"
     ],
 )
 def test_normalize_name(raw: str, expected: str) -> None:

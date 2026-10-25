@@ -135,11 +135,15 @@ NameKeyFunc = Callable[[str, str], Hashable]
 def normalize_name(value: str) -> str:
     """Canonical form of one name part, used only for comparison.
 
-    Case-folded, Unicode NFKC-normalised, with surrounding whitespace removed and inner runs of
+    Unicode NFKC-normalised and case-folded, with surrounding whitespace removed and inner runs of
     whitespace collapsed to one space. Hyphens, apostrophes and accents are kept as-is, so
     ``"Price-Chavez"`` and ``"Price Chavez"`` are still different names.
+
+    NFKC comes first because it can produce capitals that case-folding must then see ("ℍ" -> "H"),
+    and again last because case-folding can leave text that is no longer NFKC.
     """
-    return " ".join(unicodedata.normalize("NFKC", value.casefold()).split())
+    folded = unicodedata.normalize("NFKC", value).casefold()
+    return " ".join(unicodedata.normalize("NFKC", folded).split())
 
 
 def default_name_key(first_name: str, last_name: str) -> tuple[str, str]:
