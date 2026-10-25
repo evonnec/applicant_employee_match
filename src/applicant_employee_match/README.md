@@ -12,7 +12,7 @@ This project is managed with [uv](https://docs.astral.sh/uv/). It supports Pytho
 `.python-version` pins the interpreter used for development (3.15).
 
 From the project directory, create the `.venv` virtual environment and install the package plus its
-dev tools (pytest, ruff, mypy) from `uv.lock`:
+dev tools (pytest, hypothesis, ruff, mypy) from `uv.lock`:
 ```
 uv sync
 ```
@@ -50,25 +50,30 @@ The matched output will be in `matches.csv` in the data/output/ folder. The pack
 `applicant-employee-match` command, and `python -m applicant_employee_match` works too. All three run the same
 code, so `uv run applicant-employee-match --help` gives the same help.
 
-* Without `-o` (or with `-o -`) the CSV is written to standard output, so it can be piped. The summary
-  (`Read 900 applicants ...`, `Found 600 matches`) and any warnings always go to standard error.
+* Without `-o` (or with `-o -`) the CSV is written to standard output, so it can be piped. It is the same
+  UTF-8 CSV that `-o FILE` writes, whatever the locale. The summary (`Read 900 applicants ...`,
+  `Found 600 matches`) and any warnings always go to standard error.
+* An input may also be a pipe, for example `-a /dev/stdin` or `-a <(some-command)`.
 * Exit codes: `0` success, `1` missing or invalid input (the message names the file and line), `2` bad
   command-line arguments.
 * The output file is opened only after both inputs have been read and validated, so a bad input never
-  truncates the previous output. The tool also refuses to write its output over one of its inputs.
+  truncates the previous output. The tool also refuses to write its output over one of its inputs, including
+  through a symbolic or hard link, or a path that differs only in letter case on a case-insensitive file system.
 
 ## How matching works
 
 1. **Key.** An employee row and an applicant row match when their first names and last names are equal
-   after normalisation: Unicode NFKC, case-folding, surrounding whitespace removed and inner runs of
-   whitespace collapsed. `KATHERINE BUTLER` therefore matches `Katherine Butler`. Hyphens, apostrophes and
+   after normalisation: Unicode NFKC, then case-folding (then NFKC again), surrounding whitespace removed
+   and inner runs of whitespace collapsed. `KATHERINE BUTLER` therefore matches `Katherine Butler`. Hyphens, apostrophes and
    accents still count, so `Price-Chavez` ≠ `Price Chavez`, `José` ≠ `Jose`, and nicknames don't
    match (`Kathy` ≠ `Katherine`). The job is not taken into account.
 2. **One applicant per hire.** Each employee row is a hire and is matched on its own. A rehire (the same
    `employee_id` on a second row) produces a second match. An applicant can match several employee rows.
 3. **Ties.** If several different applicants share the key, the match goes to the latest application on or
    before the hire date. If every application is after the hire date, it goes to the earliest one. On the
-   same date, the lexicographically smallest `applicant_id` wins. These matches are counted in a warning.
+   same date, the lexicographically smallest `applicant_id` wins, then the smallest first and last name (two
+   spellings under one `applicant_id`), so the choice never depends on row order. These matches are counted
+   in a warning.
 4. **Duplicates.** Exact duplicate applicant rows count once. Exact duplicate employee rows produce a single
    match, and the number skipped is reported.
 5. **Name collisions.** If one applicant matches more than one distinct `employee_id`, which probably
@@ -86,7 +91,7 @@ add about 60 more, a nickname table about 200 more, and linking rows by `employe
 
 * UTF-8 CSV with a header row. A byte-order mark (as Excel writes) is fine. Header names are matched
   case-insensitively and with surrounding whitespace ignored, columns may be in any order, and extra
-  columns are ignored.
+  columns (unnamed ones included, such as Excel's trailing commas) are ignored.
 * Applicants: `applicant_id`, `first_name`, `last_name`, `application_date`. Employees: `employee_id`,
   `first_name`, `last_name`, `hire_date` and an optional `term_date`.
 * Dates must be `YYYY-MM-DD`. An empty `term_date` means still employed, and `term_date` may not be
@@ -95,6 +100,8 @@ add about 60 more, a nickname table about 200 more, and linking rows by `employe
   empty file, missing or duplicated columns, a row with the wrong number of fields, a non-UTF-8 file or
   an invalid value stops the run with an error such as
   `data/input/employees.csv:42: hire_date='2019-13-01': Value error, expected a date in YYYY-MM-DD format, ...`.
+  The line is where the bad record starts (a quoted field may span lines). For a non-UTF-8 file, the
+  error gives the line and the byte offset in the file.
 
 ## Performance
 
@@ -129,3 +136,5 @@ uv run pytest
 * `tests/test_cli.py`: the command line end to end. This includes a check that `data/output/matches.csv`
   is exactly what the documented command produces from `data/input`. If you change the matching
   behaviour, regenerate that file with the command above and commit it together with the change.
+* `tests/test_properties.py`: property-based tests (hypothesis) of the name key, the matching rules,
+  independence from row order, CSV round trips, error line numbers and fuzzed input.
