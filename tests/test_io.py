@@ -97,6 +97,20 @@ def test_quoted_fields_and_line_numbers_after_multiline_records(
     assert next(read_applicants(path)).last_name == "Scott, Jr."
 
 
+def test_error_in_a_multiline_record_reports_the_line_where_it_starts(make_csv: MakeCsv) -> None:
+    text = APPLICANT_HEADER + '1,2012-01-28,Robert,Scott\n2,2012-13-01,"Mary\nAnn\nJo",Lee\n3,2012-01-29,A,B\n'
+    with pytest.raises(InputDataError, match=r"a\.csv:3: application_date='2012-13-01'"):
+        list(read_applicants(make_csv("a.csv", text)))
+
+
+def test_unterminated_quote_reports_the_line_where_the_record_starts(make_csv: MakeCsv) -> None:
+    """A stray quote swallows the rest of the file into one field; the error should point at the quote's line."""
+    rows = "".join(f"{i},2012-01-28,Robert,Scott\n" for i in range(3, 50))
+    text = APPLICANT_HEADER + '1,2012-01-28,Robert,Scott\n2,2012-01-28,"Ann,Lee\n' + rows
+    with pytest.raises(InputDataError, match=r"a\.csv:3: expected 4 fields, got 3"):
+        list(read_applicants(make_csv("a.csv", text)))
+
+
 @pytest.mark.parametrize(
     ("text", "message"),
     [

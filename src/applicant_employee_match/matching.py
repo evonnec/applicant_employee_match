@@ -321,16 +321,18 @@ def _locate_invalid_utf8(path: Path) -> str | None:
 
 def _parse_rows[T: (Applicant, Employee)](cls: type[T], path: Path, handle: TextIO) -> Iterator[T]:
     reader = csv.reader(handle)
+    start = 1  # first line of the record being read: a quoted field can span lines
     try:
         header = next(reader, None)
         if header is None:
             raise InputDataError(f"{path}: file is empty; expected a header row")
         columns = _check_header(cls, path, header)
         known = set(cls.model_fields)
+        start = reader.line_num + 1
         for row in reader:
+            where, start = f"{path}:{start}", reader.line_num + 1
             if not any(cell.strip() for cell in row):
                 continue
-            where = f"{path}:{reader.line_num}"
             if len(row) != len(columns):
                 expected = len(columns)
                 raise InputDataError(f"{where}: expected {expected} fields, got {len(row)}")
@@ -344,7 +346,7 @@ def _parse_rows[T: (Applicant, Employee)](cls: type[T], path: Path, handle: Text
             except ValidationError as exc:
                 raise InputDataError(f"{where}: {_describe(exc)}") from None
     except csv.Error as exc:
-        raise InputDataError(f"{path}:{reader.line_num}: malformed CSV: {exc}") from None
+        raise InputDataError(f"{path}:{start}: malformed CSV: {exc}") from None
 
 
 def _check_header(cls: type[BaseModel], path: Path, header: list[str]) -> list[str]:
