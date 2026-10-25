@@ -27,4 +27,21 @@ implement a feature related to that. More details will be provided then.
   
 Make sure you have your environment setup before the day of the interview and that you can run
 the examples described in the README.  
-  
+
+## Where to start
+
+The tool, its installation, the matching rules, the input format and the test suite are described in
+[src/applicant_employee_match/README.md](src/applicant_employee_match/README.md). In short:
+
+```
+uv sync
+uv run python src/applicant_employee_match/matching.py -a data/input/applicants.csv -e data/input/employees.csv -o data/output/matches.csv
+uv run pytest
+```
+
+| Path | What it is |
+| --- | --- |
+| `src/applicant_employee_match/matching.py` | Data models, matching logic, CSV I/O and the CLI |
+| `data/input/` | Sample ATS (applicants) and HRIS (employees) exports |
+| `data/output/matches.csv` | The output for the sample input; a test checks that it is reproducible |
+| `tests/` | Unit, I/O and end-to-end tests |
