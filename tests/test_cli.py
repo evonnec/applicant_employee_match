@@ -211,6 +211,22 @@ def run(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
+@pytest.mark.skipif(not os.path.exists("/dev/stdin"), reason="needs /dev/stdin")
+def test_input_can_be_a_pipe(repo_root: Path, make_csv: MakeCsv) -> None:
+    """`-a /dev/stdin` and process substitution (`-a <(cmd)`) pass a pipe, not a regular file."""
+    proc = subprocess.run(
+        [sys.executable, "src/applicant_employee_match/matching.py", "-a", "/dev/stdin"]
+        + ["-e", str(make_csv("e.csv", EMPLOYEES))],
+        cwd=repo_root,
+        input=APPLICANTS,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "Found 2 matches" in proc.stderr
+
+
 def test_importing_the_module_has_no_side_effects(repo_root: Path) -> None:
     proc = run(["-c", "import applicant_employee_match.matching"], repo_root)
     assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")

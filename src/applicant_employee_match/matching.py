@@ -452,7 +452,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         for label, path in (("applicant", applicant_csv), ("employee", employee_csv)):
-            if not os.path.isfile(path):
+            # Not os.path.isfile: a pipe (`-a /dev/stdin`, `-a <(cmd)`) is a valid input too.
+            if not os.path.exists(path) or os.path.isdir(path):
                 raise InputDataError(f"{label} CSV not found (or not a file): {path}")
             if out != "-" and _same_file(out, path):
                 raise InputDataError(f"refusing to overwrite the {label} input with the output: {out}")
