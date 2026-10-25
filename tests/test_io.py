@@ -1,7 +1,9 @@
 """Tests for CSV reading (validation, malformed input) and writing."""
 
 import csv
-from collections.abc import Callable
+import os
+import stat
+from collections.abc import Callable, Iterator
 from datetime import date
 from pathlib import Path
 
@@ -13,6 +15,7 @@ from applicant_employee_match.matching import (
     Employee,
     InputDataError,
     Match,
+    check_writable,
     read_applicants,
     read_csv,
     read_employees,
@@ -251,3 +254,82 @@ def test_write_matches_with_no_rows_writes_header_only(tmp_path: Path) -> None:
     out = tmp_path / "matches.csv"
     assert write_matches([], out) == 0
     assert out.read_bytes() == ",".join(MATCH_COLUMNS).encode() + b"\r\n"
+
+
+def test_write_matches_failure_part_way_keeps_previous_output(tmp_path: Path) -> None:
+    out = tmp_path / "matches.csv"
+    out.write_text("previous run\n")
+
+    def failing_rows() -> Iterator[Match]:
+        yield make_match(date(2020, 1, 1))
+        raise RuntimeError("disk full")
+
+    with pytest.raises(RuntimeError, match="disk full"):
+        write_matches(failing_rows(), out)
+    assert out.read_text() == "previous run\n"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["matches.csv"]  # no temporary file left behind
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits")
+def test_write_matches_keeps_mode_of_existing_file(tmp_path: Path) -> None:
+    out = tmp_path / "matches.csv"
+    out.write_text("previous run\n")
+    out.chmod(0o640)
+    write_matches([make_match(None)], out)
+    assert stat.S_IMODE(out.stat().st_mode) == 0o640
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits")
+def test_write_matches_new_file_follows_umask(tmp_path: Path) -> None:
+    umask = os.umask(0o022)
+    try:
+        write_matches([], tmp_path / "matches.csv")
+    finally:
+        os.umask(umask)
+    assert stat.S_IMODE((tmp_path / "matches.csv").stat().st_mode) == 0o644
+
+
+def test_write_matches_writes_through_a_symlink(tmp_path: Path) -> None:
+    target = tmp_path / "real.csv"
+    target.write_text("previous run\n")
+    link = tmp_path / "link.csv"
+    link.symlink_to(target)
+    write_matches([], link)
+    assert link.is_symlink()
+    assert target.read_bytes() == ",".join(MATCH_COLUMNS).encode() + b"\r\n"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="needs /dev/null")
+def test_write_matches_to_a_device_writes_in_place() -> None:
+    assert write_matches([make_match(None)], os.devnull) == 1
+    assert Path(os.devnull).is_char_device()
+
+
+@pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="POSIX permissions; root ignores them")
+def test_write_matches_refuses_read_only_output(tmp_path: Path) -> None:
+    out = tmp_path / "matches.csv"
+    out.write_text("previous run\n")
+    out.chmod(0o444)
+    with pytest.raises(PermissionError, match="output file is not writable"):
+        write_matches([], out)
+    assert out.read_text() == "previous run\n"
+
+
+@pytest.mark.parametrize(
+    ("relative", "error", "message"),
+    [
+        ("no-such-dir/out.csv", FileNotFoundError, "output directory not found"),
+        (".", IsADirectoryError, "output path is a directory"),
+    ],
+)
+def test_check_writable_rejects_impossible_paths(
+    tmp_path: Path, relative: str, error: type[OSError], message: str
+) -> None:
+    with pytest.raises(error, match=message):
+        check_writable(tmp_path / relative)
+
+
+def test_check_writable_accepts_new_and_existing_files(tmp_path: Path) -> None:
+    check_writable(tmp_path / "new.csv")
+    (tmp_path / "old.csv").write_text("x")
+    check_writable(tmp_path / "old.csv")

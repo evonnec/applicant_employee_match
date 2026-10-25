@@ -187,6 +187,23 @@ def test_unwritable_output_location(make_csv: MakeCsv, tmp_path: Path, capsys: p
     assert "error:" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize(
+    ("relative", "message"),
+    [("no-such-dir/out.csv", "output directory not found"), (".", "output path is a directory")],
+)
+def test_unwritable_output_fails_before_reading_inputs(
+    make_csv: MakeCsv, tmp_path: Path, capsys: pytest.CaptureFixture[str], relative: str, message: str
+) -> None:
+    # The employee file is invalid too: the output error must win because inputs are never read.
+    employees = make_csv("e.csv", EMPLOYEES + "12,2019-99-01,Cy,Ng,\n")
+    code = main(["-a", str(make_csv("a.csv", APPLICANTS)), "-e", str(employees), "-o", str(tmp_path / relative)])
+    err = capsys.readouterr().err
+    assert code == 1
+    assert message in err
+    assert "Read " not in err
+    assert "hire_date" not in err
+
+
 def test_missing_required_argument_is_a_usage_error(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

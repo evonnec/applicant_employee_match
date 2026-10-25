@@ -54,11 +54,16 @@ code, so `uv run applicant-employee-match --help` gives the same help.
   UTF-8 CSV that `-o FILE` writes, whatever the locale. The summary (`Read 900 applicants ...`,
   `Found 600 matches`) and any warnings always go to standard error.
 * An input may also be a pipe, for example `-a /dev/stdin` or `-a <(some-command)`.
-* Exit codes: `0` success, `1` missing or invalid input (the message names the file and line), `2` bad
-  command-line arguments.
-* The output file is opened only after both inputs have been read and validated, so a bad input never
-  truncates the previous output. The tool also refuses to write its output over one of its inputs, including
-  through a symbolic or hard link, or a path that differs only in letter case on a case-insensitive file system.
+* Exit codes: `0` success, `1` missing or invalid input (the message names the file and line) or an output
+  that cannot be written, `2` bad command-line arguments.
+* The output location is checked before either input is read, so a missing directory, a directory given as
+  `-o`, or a read-only output fails immediately instead of after a long read.
+* The output is written only after both inputs have been read and validated, and an output file is replaced
+  atomically: rows go to a temporary file next to it that is renamed into place when complete. A bad input,
+  a full disk or Ctrl-C never leaves a truncated or partial output, and the previous output stays intact. The
+  file keeps its permissions, and a symbolic link is written through. The tool also refuses to write its output
+  over one of its inputs, including through a symbolic or hard link, or a path that differs only in letter case
+  on a case-insensitive file system.
 
 ## How matching works
 

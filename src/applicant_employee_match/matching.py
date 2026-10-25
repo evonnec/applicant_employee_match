@@ -4,7 +4,7 @@ The module is organised in four layers, top to bottom:
 
 1. Data models (``Applicant``, ``Employee``, ``Match``): validation only, no I/O.
 2. Matching (``normalize_name``, ``default_name_key``, ``match_records``): pure functions.
-3. CSV I/O (``read_csv``, ``read_applicants``, ``read_employees``, ``write_matches``).
+3. CSV I/O (``read_csv``, ``read_applicants``, ``read_employees``, ``check_writable``, ``write_matches``).
 4. The command-line interface (``main``).
 
 Everything lives in one module so that ``python src/applicant_employee_match/matching.py``
@@ -13,10 +13,13 @@ keeps working without installing the package. ``python -m applicant_employee_mat
 """
 
 import argparse
+import contextlib
 import csv
+import errno
 import io
 import os
 import re
+import secrets
 import sys
 import unicodedata
 from collections import defaultdict
@@ -384,10 +387,54 @@ def write_csv(matches: Iterable[Match], handle: TextIO) -> int:
     return count
 
 
+def check_writable(filename: str | os.PathLike[str]) -> None:
+    """Raise ``OSError`` if ``write_matches`` clearly cannot write ``filename``. Cheap; reads no data."""
+    path = Path(os.path.realpath(filename))
+    if path.is_dir():
+        raise IsADirectoryError(errno.EISDIR, "output path is a directory", str(filename))
+    if path.exists():
+        # A read-only output is refused, as open("w") would, even though replacing it would succeed.
+        if not os.access(path, os.W_OK):
+            raise PermissionError(errno.EACCES, "output file is not writable", str(filename))
+        if not path.is_file():  # /dev/null, a FIFO: written in place, so the directory does not matter
+            return
+    if not path.parent.is_dir():
+        raise FileNotFoundError(errno.ENOENT, "output directory not found", str(path.parent))
+    if not os.access(path.parent, os.W_OK | os.X_OK):
+        raise PermissionError(errno.EACCES, "output directory is not writable", str(path.parent))
+
+
 def write_matches(matches: Iterable[Match], filename: str | os.PathLike[str]) -> int:
-    """Write matches to ``filename`` as UTF-8 CSV with CRLF row endings (RFC 4180, as before)."""
-    with Path(filename).open("w", newline="", encoding="utf-8") as handle:
-        return write_csv(matches, handle)
+    """Write matches to ``filename`` as UTF-8 CSV with CRLF row endings (RFC 4180, as before).
+
+    A regular file is replaced atomically: rows go to a temporary file in the same directory that is
+    renamed over ``filename`` only once complete, so a failure part-way (an exception, a full disk,
+    Ctrl-C) leaves the previous output intact. An existing file keeps its permission bits, and a
+    symbolic link is written through, not replaced. Anything else that already exists at ``filename``
+    (``/dev/null``, a FIFO) is written in place.
+    """
+    check_writable(filename)
+    path = Path(os.path.realpath(filename))
+    if path.exists() and not path.is_file():
+        with path.open("w", newline="", encoding="utf-8") as handle:
+            return write_csv(matches, handle)
+
+    tmp = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
+    # Mode 0o666 is reduced by the umask, exactly like open("w") on a new file.
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o666)
+    try:
+        with os.fdopen(fd, "w", newline="", encoding="utf-8") as handle:
+            count = write_csv(matches, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if path.exists():
+            os.chmod(tmp, path.stat().st_mode & 0o7777)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+    return count
 
 
 # ---------------------------------------------------------------------------
@@ -442,7 +489,12 @@ def _same_file(a: str, b: str) -> bool:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run the CLI. Returns the process exit code: 0 on success, 1 on bad input, 2 on bad usage."""
+    """Run the CLI and return the process exit code: 0 on success, 1 on bad input or an unwritable output.
+
+    Bad command-line arguments do not return: argparse prints the usage and raises ``SystemExit(2)``
+    (and ``--help`` raises ``SystemExit(0)``). The console script and ``python -m`` turn either into the
+    process exit status.
+    """
     args = build_parser().parse_args(argv)
     applicant_csv: str = args.applicant_csv
     employee_csv: str = args.employee_csv
@@ -458,6 +510,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raise InputDataError(f"{label} CSV not found (or not a file): {path}")
             if out != "-" and _same_file(out, path):
                 raise InputDataError(f"refusing to overwrite the {label} input with the output: {out}")
+        if out != "-":
+            # Before the read, which can take a while on large inputs, not after it.
+            check_writable(out)
 
         # Materialise the build side so it is fully validated before employees are streamed.
         applicants = list(read_applicants(applicant_csv))
@@ -478,8 +533,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "employee_id (possible name collision)"
             )
 
-        # Output is opened only after every input row has been read and validated, so a bad input
-        # never truncates an existing output file.
+        # Output is written only after every input row has been read and validated, and a file output
+        # is replaced atomically, so neither a bad input nor a failed write leaves a truncated file.
         if out == "-":
             # The same bytes as -o FILE (UTF-8, CRLF row endings) whatever the locale or platform.
             if isinstance(sys.stdout, io.TextIOWrapper):
