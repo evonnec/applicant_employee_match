@@ -290,6 +290,15 @@ def test_tie_on_same_date_goes_to_smallest_applicant_id() -> None:
         assert [m.applicant_id for m in result.matches] == ["A"]
 
 
+def test_tie_between_rows_sharing_applicant_id_and_date_does_not_depend_on_row_order() -> None:
+    """Two spellings under one applicant_id and date: the pick must not depend on which row came first."""
+    applicants = [make_applicant("7", first="ANN", last="LEE"), make_applicant("7", first="Ann", last="Lee")]
+    employee = make_employee(first="Ann", last="Lee")
+    results = [match_records(ordering, [employee]).matches for ordering in (applicants, applicants[::-1])]
+    assert results[0] == results[1]
+    assert [m.applicant_first_name for m in results[0]] == ["ANN"]  # then by name: "ANN" < "Ann"
+
+
 def test_tie_detection_uses_normalised_names() -> None:
     applicants = [
         make_applicant("1", first="MARIANNE"),

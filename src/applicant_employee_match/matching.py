@@ -169,9 +169,10 @@ class MatchResult:
 def _pick_applicant(candidates: Sequence[Applicant], hire_date: date) -> Applicant:
     """Choose among applicants who share a name key.
 
-    ``candidates`` must be sorted by ``(application_date, applicant_id)``. The rule is: the latest
-    application on or before the hire date; if every application is after the hire date, the
-    earliest one. Ties on the date go to the lexicographically smallest applicant_id.
+    ``candidates`` must be sorted by ``(application_date, applicant_id, first_name, last_name)``. The
+    rule is: the latest application on or before the hire date; if every application is after the
+    hire date, the earliest one. Ties on the date go to the lexicographically smallest applicant_id,
+    then name, so that the choice never depends on the order of the input rows.
     """
     chosen: Applicant | None = None
     for candidate in candidates:
@@ -221,7 +222,7 @@ def match_records(
         applicant_rows += 1
         grouped[name_key(applicant.first_name, applicant.last_name)].append(applicant)
     index: dict[Hashable, list[Applicant]] = {
-        key: sorted(dict.fromkeys(group), key=lambda a: (a.application_date, a.applicant_id))
+        key: sorted(dict.fromkeys(group), key=lambda a: (a.application_date, a.applicant_id, a.first_name, a.last_name))
         for key, group in grouped.items()
     }
 
