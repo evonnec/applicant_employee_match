@@ -146,6 +146,29 @@ def test_refuses_to_overwrite_an_input(make_csv: MakeCsv, capsys: pytest.Capture
     assert employees.read_text() == EMPLOYEES
 
 
+def test_refuses_to_overwrite_an_input_through_a_hard_link(
+    make_csv: MakeCsv, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    applicants, employees = make_csv("a.csv", APPLICANTS), make_csv("e.csv", EMPLOYEES)
+    link = tmp_path / "link.csv"
+    os.link(applicants, link)
+    assert main(["-a", str(applicants), "-e", str(employees), "-o", str(link)]) == 1
+    assert "refusing to overwrite the applicant input" in capsys.readouterr().err
+    assert applicants.read_text() == APPLICANTS
+
+
+def test_refuses_to_overwrite_an_input_spelled_in_another_case(
+    make_csv: MakeCsv, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """On a case-insensitive file system (the macOS and Windows default) A.CSV is the same file as a.csv."""
+    applicants, employees = make_csv("a.csv", APPLICANTS), make_csv("e.csv", EMPLOYEES)
+    if not (tmp_path / "A.CSV").exists():
+        pytest.skip("file system is case-sensitive")
+    assert main(["-a", str(applicants), "-e", str(employees), "-o", str(tmp_path / "A.CSV")]) == 1
+    assert "refusing to overwrite the applicant input" in capsys.readouterr().err
+    assert applicants.read_text() == APPLICANTS
+
+
 def test_unwritable_output_location(make_csv: MakeCsv, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     out = tmp_path / "no-such-dir" / "out.csv"
     assert (

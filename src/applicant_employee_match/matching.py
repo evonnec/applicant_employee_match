@@ -432,7 +432,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _same_file(a: str, b: str) -> bool:
-    return os.path.realpath(a) == os.path.realpath(b)
+    # samefile compares device and inode numbers, so it also sees through hard links and through
+    # case-insensitive file systems (the macOS and Windows default), where A.CSV is a.csv.
+    try:
+        return os.path.samefile(a, b)
+    except OSError:  # one of them does not exist (yet)
+        return os.path.realpath(a) == os.path.realpath(b)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
