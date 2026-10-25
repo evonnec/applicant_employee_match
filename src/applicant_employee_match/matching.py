@@ -297,8 +297,26 @@ def read_csv[T: (Applicant, Employee)](cls: type[T], filename: str | os.PathLike
         with path.open(newline="", encoding="utf-8-sig") as handle:
             yield from _parse_rows(cls, path, handle)
     except UnicodeDecodeError as exc:
-        reason = f"{exc.reason} at byte {exc.start}"
-        raise InputDataError(f"{path}: not valid UTF-8 ({reason})") from None
+        raise InputDataError(_locate_invalid_utf8(path) or f"{path}: not valid UTF-8 ({exc.reason})") from None
+
+
+def _locate_invalid_utf8(path: Path) -> str | None:
+    """Describe the first byte of ``path`` that is not UTF-8, with its line and offset in the file.
+
+    The ``UnicodeDecodeError`` raised while reading only knows its offset within one buffered chunk,
+    so a regular file is scanned again. A pipe cannot be read twice, so for it this returns None.
+    """
+    if not path.is_file():
+        return None
+    offset = 0
+    with path.open("rb") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            try:
+                line.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                return f"{path}:{line_number}: not valid UTF-8 ({exc.reason} at byte {offset + exc.start})"
+            offset += len(line)
+    return None
 
 
 def _parse_rows[T: (Applicant, Employee)](cls: type[T], path: Path, handle: TextIO) -> Iterator[T]:

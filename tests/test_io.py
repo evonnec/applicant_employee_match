@@ -158,6 +158,15 @@ def test_non_utf8_file_is_reported(make_csv: MakeCsv) -> None:
         list(read_applicants(path))
 
 
+def test_non_utf8_byte_deep_in_a_file_is_located_by_line_and_file_offset(make_csv: MakeCsv) -> None:
+    """The decoder reads in chunks, so its offset is relative to a chunk; the error must locate the byte in the file."""
+    rows = "".join(f"{i},2012-01-28,Robert,Scott\r\n" for i in range(1, 5000))
+    path = make_csv("a.csv", APPLICANT_HEADER + rows + "5000,2012-01-28,José,Scott\r\n", encoding="latin-1")
+    offset = path.read_bytes().index("é".encode("latin-1"))
+    with pytest.raises(InputDataError, match=rf"a\.csv:5001: not valid UTF-8 \(.* at byte {offset}\)"):
+        list(read_applicants(path))
+
+
 def test_oversized_field_is_reported_with_line(make_csv: MakeCsv) -> None:
     path = make_csv(
         "a.csv",
