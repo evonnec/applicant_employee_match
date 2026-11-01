@@ -1,10 +1,11 @@
 
 # Applicant/Employee matcher
 
-This tool loads data received from a client's HRIS (employee) and ATS (applicant) systems
-and uses our fancy proprietary algorithm to match employees to applicants. This is necessary
-because our questionnaire and model use applicant data in production, but the model needs
-employee data (hire/termination dates) for training.
+This tool loads data exported from an HRIS (employee) system and an ATS (applicant) system and matches
+each employee to the applicant record they most likely came from. The two systems share no identifier, so
+the match is made on first and last name (see [How matching works](#how-matching-works)). The result links
+what is known when someone applies to what happens after they are hired, such as their hire and
+termination dates.
 
 ## Installation
 
